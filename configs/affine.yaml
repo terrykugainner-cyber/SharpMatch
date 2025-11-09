@@ -1,0 +1,36 @@
+# 仿射匹配配置文件
+# 此文件可被 CLI 參數覆蓋
+
+# 圖像路徑（必需，可通過 CLI 覆蓋）
+# template: data/demo/template.png
+# image: data/demo/scene.png
+
+# 檢測器設置
+detector: auto  # auto, sift, orb, akaze
+
+# 匹配器設置
+matcher: bf  # bf (Brute Force), flann (FLANN 近似最近鄰)
+# - bf: 暴力匹配，精確但較慢（適合小數據集）
+# - flann: FLANN 匹配，快速但為近似匹配（適合大數據集）
+#   - SIFT/AKAZE 使用 FLANN KDTree 索引
+#   - ORB 使用 FLANN LSH 索引
+
+# 匹配參數
+ratio: 0.75  # Lowe Ratio Test 閾值 (0.0-1.0)
+max_keypoints: 3000  # 最多特徵點數量
+
+# RANSAC 參數
+ransac_reproj_thresh: 3.0  # 重投影閾值（像素）
+ransac_max_iters: 2000  # 最大迭代次數（也可使用 ransac_max_iter）
+ransac_confidence: 0.99  # 置信度 (0.0-1.0)
+
+# 品質門檻參數
+min_inliers: 30  # 最小內點數量門檻（不達標時退出碼為 2）
+min_inlier_ratio: 0.25  # 最小內點比率門檻（不達標時退出碼為 2）
+
+# 輸出設置
+outdir: outputs  # 輸出目錄
+
+# 調試選項
+debug: false  # 是否顯示詳細統計信息
+

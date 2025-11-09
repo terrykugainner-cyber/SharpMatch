@@ -1,0 +1,38 @@
+{
+  "affine_matrix": [
+    [
+      -10.96032214157258,
+      -34.26421864126962,
+      5482.430890964589
+    ],
+    [
+      34.26421864126962,
+      -10.96032214157258,
+      -69.8523403153709
+    ]
+  ],
+  "params": {
+    "tx": 5482.430890964589,
+    "ty": -69.8523403153709,
+    "theta_deg": 107.73825842170552,
+    "theta_rad": 1.8803873398232707,
+    "scale": 35.97450959420816,
+    "scale_x": 35.97450959420816,
+    "scale_y": 35.97450959420816
+  },
+  "statistics": {
+    "num_matches": 3,
+    "num_inliers": 2,
+    "num_outliers": 1,
+    "inlier_ratio": 0.6666666666666666
+  },
+  "config": {
+    "detector_type": "sift",
+    "ratio_threshold": 0.75,
+    "ransac_params": {
+      "reproj_thresh": 3.0,
+      "max_iters": 2000,
+      "confidence": 0.99
+    }
+  }
+}

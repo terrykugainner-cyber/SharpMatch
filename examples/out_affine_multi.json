@@ -1,0 +1,205 @@
+{
+  "num_instances": 5,
+  "instances": [
+    {
+      "instance_id": 0,
+      "affine_matrix": [
+        [
+          0.9990531525397234,
+          0.08949017164939309,
+          329.3542972041246
+        ],
+        [
+          -0.08949017164939309,
+          0.9990531525397234,
+          884.3727148382878
+        ]
+      ],
+      "params": {
+        "tx": 329.3542972041246,
+        "ty": 884.3727148382878,
+        "theta_deg": -5.118607768037553,
+        "theta_rad": -0.08933655867041346,
+        "scale": 1.003053185240642,
+        "scale_x": 1.003053185240642,
+        "scale_y": 1.003053185240642
+      },
+      "statistics": {
+        "num_matches": 24,
+        "num_inliers": 20,
+        "num_outliers": 4,
+        "inlier_ratio": 0.8333333333333334
+      },
+      "config": {
+        "detector_type": "sift",
+        "ratio_threshold": 0.75,
+        "ransac_params": {
+          "reproj_thresh": 3.0,
+          "max_iters": 2000,
+          "confidence": 0.99
+        }
+      },
+      "chamfer_score": 0.983590304851532
+    },
+    {
+      "instance_id": 1,
+      "affine_matrix": [
+        [
+          0.98722401670031,
+          -0.17357185332690045,
+          1448.439205787592
+        ],
+        [
+          0.17357185332690045,
+          0.98722401670031,
+          417.5399758732908
+        ]
+      ],
+      "params": {
+        "tx": 1448.439205787592,
+        "ty": 417.5399758732908,
+        "theta_deg": 9.971720144141244,
+        "theta_rad": 0.17403934860270825,
+        "scale": 1.0023664237279843,
+        "scale_x": 1.0023664237279843,
+        "scale_y": 1.0023664237279843
+      },
+      "statistics": {
+        "num_matches": 25,
+        "num_inliers": 20,
+        "num_outliers": 5,
+        "inlier_ratio": 0.8
+      },
+      "config": {
+        "detector_type": "sift",
+        "ratio_threshold": 0.75,
+        "ransac_params": {
+          "reproj_thresh": 3.0,
+          "max_iters": 2000,
+          "confidence": 0.99
+        }
+      },
+      "chamfer_score": 0.9981526136398315
+    },
+    {
+      "instance_id": 2,
+      "affine_matrix": [
+        [
+          1.0133363933774646,
+          0.0055432110376669565,
+          918.4480067238087
+        ],
+        [
+          -0.0055432110376669565,
+          1.0133363933774646,
+          682.4349491084533
+        ]
+      ],
+      "params": {
+        "tx": 918.4480067238087,
+        "ty": 682.4349491084533,
+        "theta_deg": -0.3134195431951614,
+        "theta_rad": -0.005470202968852155,
+        "scale": 1.0133515546600083,
+        "scale_x": 1.0133515546600083,
+        "scale_y": 1.0133515546600083
+      },
+      "statistics": {
+        "num_matches": 31,
+        "num_inliers": 24,
+        "num_outliers": 7,
+        "inlier_ratio": 0.7741935483870968
+      },
+      "config": {
+        "detector_type": "sift",
+        "ratio_threshold": 0.75,
+        "ransac_params": {
+          "reproj_thresh": 3.0,
+          "max_iters": 2000,
+          "confidence": 0.99
+        }
+      },
+      "chamfer_score": 0.9844765067100525
+    },
+    {
+      "instance_id": 3,
+      "affine_matrix": [
+        [
+          1.092780936227598,
+          -0.1847633956149309,
+          714.0862453047728
+        ],
+        [
+          0.1847633956149309,
+          1.092780936227598,
+          1304.8226927897667
+        ]
+      ],
+      "params": {
+        "tx": 714.0862453047728,
+        "ty": 1304.8226927897667,
+        "theta_deg": 9.596601860092136,
+        "theta_rad": 0.16749229946162,
+        "scale": 1.108290434381541,
+        "scale_x": 1.108290434381541,
+        "scale_y": 1.108290434381541
+      },
+      "statistics": {
+        "num_matches": 25,
+        "num_inliers": 19,
+        "num_outliers": 6,
+        "inlier_ratio": 0.76
+      },
+      "config": {
+        "detector_type": "sift",
+        "ratio_threshold": 0.75,
+        "ransac_params": {
+          "reproj_thresh": 3.0,
+          "max_iters": 2000,
+          "confidence": 0.99
+        }
+      },
+      "chamfer_score": 0.9978142380714417
+    },
+    {
+      "instance_id": 4,
+      "affine_matrix": [
+        [
+          0.8948793770490059,
+          -0.14682589417110295,
+          827.316361669985
+        ],
+        [
+          0.14682589417110295,
+          0.8948793770490059,
+          185.16197454282928
+        ]
+      ],
+      "params": {
+        "tx": 827.316361669985,
+        "ty": 185.16197454282928,
+        "theta_deg": 9.317693735656036,
+        "theta_rad": 0.162624434379648,
+        "scale": 0.9068444975114315,
+        "scale_x": 0.9068444975114315,
+        "scale_y": 0.9068444975114315
+      },
+      "statistics": {
+        "num_matches": 24,
+        "num_inliers": 17,
+        "num_outliers": 7,
+        "inlier_ratio": 0.7083333333333334
+      },
+      "config": {
+        "detector_type": "sift",
+        "ratio_threshold": 0.75,
+        "ransac_params": {
+          "reproj_thresh": 3.0,
+          "max_iters": 2000,
+          "confidence": 0.99
+        }
+      },
+      "chamfer_score": 0.9971569776535034
+    }
+  ]
+}
