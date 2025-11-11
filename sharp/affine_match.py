@@ -195,6 +195,40 @@ def decompose_affine_matrix(M: np.ndarray) -> Dict[str, float]:
     }
 
 
+def diagnose_feature_quality(num_keypoints_template: int,
+                             num_keypoints_scene: int,
+                             num_ratio_matches: int,
+                             detector_type: str,
+                             ratio_threshold: float,
+                             max_keypoints: int,
+                             min_keypoints_scene: int = 30,
+                             min_ratio_matches: int = 15) -> List[str]:
+    """檢查特徵點與匹配數量是否偏低，並提供診斷建議。"""
+    warnings = []
+
+    if num_keypoints_scene < min_keypoints_scene:
+        suggestions = [
+            f"場景特徵點僅 {num_keypoints_scene} 個 (< {min_keypoints_scene})",
+            f"- 建議提高 max_keypoints（目前 {max_keypoints}）",
+            "- 優先選用 SIFT/高品質檢測器以取得更多特徵",
+            "- 嘗試提升影像對比、銳化或降噪以強化特徵"
+        ]
+        warnings.append("\n".join(suggestions))
+
+    if num_ratio_matches < min_ratio_matches:
+        suggestions = [
+            f"通過 ratio test 的匹配僅 {num_ratio_matches} 個 (< {min_ratio_matches})",
+            f"- 建議放寬 ratio_threshold（目前 {ratio_threshold:.2f}）",
+            f"- 同時提高 max_keypoints（目前 {max_keypoints}）",
+            "- 針對場景/模板提升對比、邊緣或清晰度"
+        ]
+        if detector_type.lower() != 'sift':
+            suggestions.append("- 可改用 SIFT 以獲得更穩定的描述子")
+        warnings.append("\n".join(suggestions))
+
+    return warnings
+
+
 def affine_match(template: np.ndarray, image: np.ndarray,
                 detector_type: str = 'auto',
                 matcher_type: str = 'bf',
@@ -254,7 +288,24 @@ def affine_match(template: np.ndarray, image: np.ndarray,
     
     # 匹配特徵
     matches = match_features(desc1, desc2, actual_detector_type, matcher_type, ratio_threshold)
-    
+
+    # 例外處理與診斷
+    diagnostics = diagnose_feature_quality(
+        num_keypoints_template=len(kp1),
+        num_keypoints_scene=len(kp2),
+        num_ratio_matches=len(matches),
+        detector_type=actual_detector_type,
+        ratio_threshold=ratio_threshold,
+        max_keypoints=max_keypoints
+    )
+    if diagnostics:
+        print("\n[診斷] 特徵/匹配數量可能偏低，建議調整：")
+        for msg in diagnostics:
+            lines = msg.split('\n')
+            print(f"  - {lines[0]}")
+            for extra in lines[1:]:
+                print(f"    {extra}")
+
     if len(matches) < 3:
         raise ValueError(f"匹配點太少（{len(matches)}），至少需要 3 個點。建議：1) 放寬 ratio 閾值（當前 {ratio_threshold}） 2) 增加特徵點數量（當前 {max_keypoints}） 3) 確保模板和場景圖像有足夠的重疊區域")
     
@@ -307,7 +358,8 @@ def affine_match(template: np.ndarray, image: np.ndarray,
             'reproj_thresh': ransac_reproj_thresh,
             'max_iters': ransac_max_iters,
             'confidence': ransac_confidence
-        }
+        },
+        'diag_warnings': diagnostics,
     }
 
 
@@ -508,6 +560,9 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
                               chamfer_roi: Optional[Tuple[int, int, int, int]] = None,
                               min_inlier_ratio: float = 0.15,
                               min_matches: int = 3,
+                              min_inliers: Optional[int] = None,
+                              scale_range: Optional[Tuple[float, float]] = None,
+                              min_chamfer_score: Optional[float] = None,
                               affine_roi_padding: int = 50,
                               detector_type: str = 'auto',
                               matcher_type: str = 'bf',
@@ -519,6 +574,11 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
                               nms_min_distance: float = 50.0,
                               nms_min_angle_diff: float = 5.0,
                               nms_min_scale_diff: float = 0.05,
+                              post_min_inlier_ratio: Optional[float] = None,
+                              post_min_matches: Optional[int] = None,
+                              post_min_inliers: Optional[int] = None,
+                              post_scale_range: Optional[Tuple[float, float]] = None,
+                              post_min_chamfer_score: Optional[float] = None,
                               verbose: bool = False) -> List[Dict]:
     """使用 Chamfer 粗定位 + Affine 細定位進行多物件檢測（方案 3）。
     
@@ -526,6 +586,7 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
     1. 使用 Chamfer Distance 在場景中進行粗定位，找到多個候選位置
     2. 對每個候選位置，使用 Affine 匹配進行精細定位
     3. 使用 NMS 去除重複匹配
+    4. 可選地於 Stage 2/Stage 3 設定額外的品質門檻
     
     Args:
         template: 模板圖像
@@ -533,8 +594,11 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
         chamfer_k: Chamfer 檢測的候選位置數量
         chamfer_min_dist: Chamfer 峰值間最小距離
         chamfer_roi: Chamfer 搜索區域 (x, y, w, h)，None 表示全圖
-        min_inlier_ratio: 最小內點比率閾值
-        min_matches: 最小匹配點數
+        min_inlier_ratio: Stage 2 所需的最小內點比率閾值
+        min_matches: Stage 2 所需的最小匹配點數
+        min_inliers: Stage 2 所需的最小內點數（可選）
+        scale_range: Stage 2 可接受的縮放範圍 (min_scale, max_scale)（可選）
+        min_chamfer_score: Stage 2 所需的最小 Chamfer 分數（可選）
         affine_roi_padding: 在候選位置周圍的 Affine 搜索區域填充（像素）
         detector_type: Affine 檢測器類型
         matcher_type: 匹配器類型 ('bf' 或 'flann')，預設 'bf'
@@ -546,6 +610,11 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
         nms_min_distance: NMS 最小位置距離
         nms_min_angle_diff: NMS 最小角度差異（度）
         nms_min_scale_diff: NMS 最小縮放差異
+        post_min_inlier_ratio: NMS 之後的最小內點比率閾值（可選）
+        post_min_matches: NMS 之後的最小匹配數（可選）
+        post_min_inliers: NMS 之後的最小內點數（可選）
+        post_scale_range: NMS 之後的縮放範圍（可選）
+        post_min_chamfer_score: NMS 之後的最小 Chamfer 分數（可選）
         verbose: 是否顯示詳細信息
     
     Returns:
@@ -624,16 +693,30 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
                 ransac_confidence=ransac_confidence,
                 roi=roi
             )
-            
-            # 檢查匹配質量
+            skip_reasons = []
             if result['inlier_ratio'] < min_inlier_ratio:
-                if verbose:
-                    print(f"    → 內點比率 {result['inlier_ratio']:.2%} 低於閾值 {min_inlier_ratio}")
-                continue
-            
+                skip_reasons.append(
+                    f"內點比率 {result['inlier_ratio']:.2%} 低於閾值 {min_inlier_ratio:.2%}")
             if result['num_matches'] < min_matches:
+                skip_reasons.append(
+                    f"匹配點數 {result['num_matches']} 少於最小要求 {min_matches}")
+            if min_inliers is not None and result['num_inliers'] < min_inliers:
+                skip_reasons.append(
+                    f"內點數 {result['num_inliers']} 少於最小要求 {min_inliers}")
+            scale_value = result['params']['scale']
+            if scale_range is not None:
+                min_scale, max_scale = scale_range
+                if not (min_scale <= scale_value <= max_scale):
+                    skip_reasons.append(
+                        f"縮放 {scale_value:.3f} 不在允許範圍 [{min_scale}, {max_scale}] 內")
+            if min_chamfer_score is not None and chamfer_score < min_chamfer_score:
+                skip_reasons.append(
+                    f"Chamfer 分數 {chamfer_score:.4f} 低於閾值 {min_chamfer_score}")
+
+            if skip_reasons:
                 if verbose:
-                    print(f"    → 匹配點數 {result['num_matches']} 少於最小要求 {min_matches}")
+                    for reason in skip_reasons:
+                        print(f"    → [SKIP] {reason}")
                 continue
             
             # 添加 Chamfer 分數到結果中
@@ -644,13 +727,13 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
             
             if verbose:
                 params = result['params']
-                print(f"    → ✓ 匹配成功: 內點比率={result['inlier_ratio']:.2%}, "
+                print(f"    → [OK] 匹配成功: 內點比率={result['inlier_ratio']:.2%}, "
                       f"位置=({params['tx']:.1f}, {params['ty']:.1f}), "
                       f"角度={params['theta_deg']:.1f}°, 縮放={params['scale']:.3f}")
         
         except Exception as e:
             if verbose:
-                print(f"    → ✗ 匹配失敗: {e}")
+                print(f"    → [FAIL] 匹配失敗: {e}")
             continue
     
     if verbose:
@@ -670,7 +753,46 @@ def multi_affine_match_hybrid(template: np.ndarray, image: np.ndarray,
     if verbose:
         print(f"  NMS 後保留: {len(final_results)} 個匹配")
     
-    return final_results
+    filtered_results = []
+    filtered_out = []
+    for res in final_results:
+        post_reasons = []
+        if post_min_inlier_ratio is not None and res['inlier_ratio'] < post_min_inlier_ratio:
+            post_reasons.append(
+                f"內點比率 {res['inlier_ratio']:.2%} 低於最終閾值 {post_min_inlier_ratio:.2%}")
+        if post_min_matches is not None and res['num_matches'] < post_min_matches:
+            post_reasons.append(
+                f"匹配點數 {res['num_matches']} 少於最終要求 {post_min_matches}")
+        if post_min_inliers is not None and res['num_inliers'] < post_min_inliers:
+            post_reasons.append(
+                f"內點數 {res['num_inliers']} 少於最終要求 {post_min_inliers}")
+        if post_scale_range is not None:
+            post_min_scale, post_max_scale = post_scale_range
+            s = res['params']['scale']
+            if not (post_min_scale <= s <= post_max_scale):
+                post_reasons.append(
+                    f"縮放 {s:.3f} 不在最終範圍 [{post_min_scale}, {post_max_scale}] 內")
+        if post_min_chamfer_score is not None:
+            chamfer_val = res.get('chamfer_score')
+            if chamfer_val is None or chamfer_val < post_min_chamfer_score:
+                post_reasons.append(
+                    f"Chamfer 分數 {chamfer_val if chamfer_val is not None else 'None'} "
+                    f"低於最終閾值 {post_min_chamfer_score}")
+        if post_reasons:
+            filtered_out.append((res, post_reasons))
+        else:
+            filtered_results.append(res)
+    
+    if verbose and filtered_out:
+        print(f"\n[最終過濾] 移除 {len(filtered_out)} 個結果：")
+        for res, reasons in filtered_out:
+            params = res['params']
+            print(f"  - 位置=({params['tx']:.1f}, {params['ty']:.1f}), "
+                  f"角度={params['theta_deg']:.1f}°, 縮放={params['scale']:.3f}")
+            for reason in reasons:
+                print(f"      • {reason}")
+    
+    return filtered_results
 
 
 def visualize_multi_matches(template: np.ndarray, image: np.ndarray,
@@ -755,4 +877,264 @@ def visualize_multi_matches(template: np.ndarray, image: np.ndarray,
     cv2.putText(vis, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     return vis
+
+
+def warp_scene_to_template(template: np.ndarray, 
+                          scene: np.ndarray, 
+                          affine_matrix: np.ndarray,
+                          interpolation: int = cv2.INTER_LINEAR,
+                          border_mode: int = cv2.BORDER_CONSTANT,
+                          border_value: Union[float, Tuple[float, float, float]] = 0,
+                          output_mask: bool = False) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
+    """根據仿射變換矩陣將場景影像反扭轉到模板大小。
+    
+    此函式將場景影像中對應模板的區域，根據仿射變換矩陣反扭轉回模板的座標系，
+    生成與模板尺寸相同的影像，方便後續 NCC/Chamfer 精修。
+    
+    Args:
+        template: 模板圖像（用於確定輸出尺寸）
+        scene: 場景圖像
+        affine_matrix: 2x3 仿射變換矩陣（從模板到場景的變換）
+        interpolation: 插值方法（預設 cv2.INTER_LINEAR）
+        border_mode: 邊界處理模式（預設 cv2.BORDER_CONSTANT）
+        border_value: 邊界填充值（預設 0）；彩色圖像可使用長度為 3 的 tuple
+        output_mask: 是否輸出有效區域遮罩
+    
+    Returns:
+        如果 output_mask=False: 返回反扭轉後的圖像（與模板同尺寸）
+        如果 output_mask=True: 返回 (warped_image, mask) 元組，其中 mask 為二值遮罩，
+                               255 表示有效像素（來自場景圖像），0 表示填充像素
+    """
+    if affine_matrix is None or affine_matrix.shape != (2, 3):
+        raise ValueError("無效的仿射矩陣")
+    
+    tpl_h, tpl_w = template.shape[:2]
+    warp_flags = interpolation | cv2.WARP_INVERSE_MAP
+    
+    # 為彩色圖像準備正確的邊界填充值
+    if scene.ndim == 3:
+        if isinstance(border_value, (int, float)):
+            border_value_actual = tuple([border_value] * scene.shape[2])
+        elif isinstance(border_value, (list, tuple, np.ndarray)):
+            if len(border_value) != scene.shape[2]:
+                raise ValueError("彩色圖像的 border_value 必須與通道數相同")
+            border_value_actual = tuple(border_value)
+        else:
+            raise ValueError("border_value 類型無效，應為數值或長度符合通道數的序列")
+    else:
+        border_value_actual = float(border_value)
+    
+    warped = cv2.warpAffine(
+        scene,
+        affine_matrix,
+        (tpl_w, tpl_h),
+        flags=warp_flags,
+        borderMode=border_mode,
+        borderValue=border_value_actual,
+    )
+    
+    if output_mask:
+        scene_mask = np.ones(scene.shape[:2], dtype=np.uint8) * 255
+        mask = cv2.warpAffine(
+            scene_mask,
+            affine_matrix,
+            (tpl_w, tpl_h),
+            flags=cv2.INTER_NEAREST | cv2.WARP_INVERSE_MAP,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=0,
+        )
+        mask = (mask > 0).astype(np.uint8) * 255
+        return warped, mask
+    
+    return warped
+
+
+def visualize_warp_comparison(template: np.ndarray, 
+                             scene: np.ndarray, 
+                             warped_scene: np.ndarray,
+                             result: Dict) -> np.ndarray:
+    """創建模板、場景和反扭轉後的場景區塊的並排比較圖。
+    
+    Args:
+        template: 模板圖像
+        scene: 場景圖像
+        warped_scene: 反扭轉後的場景區塊（與模板同尺寸）
+        result: affine_match 返回的結果字典
+    
+    Returns:
+        並排比較圖像
+    """
+    # 確保所有圖像都是相同類型（灰度或彩色）
+    def ensure_color(img):
+        if img.ndim == 2:
+            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        return img.copy()
+    
+    template_color = ensure_color(template)
+    warped_color = ensure_color(warped_scene)
+    
+    # 在場景圖像上繪製檢測框
+    scene_color = ensure_color(scene)
+    M = result['affine_matrix']
+    if M is not None:
+        h, w = template.shape[:2]
+        corners_template = np.float32([
+            [0, 0],
+            [w, 0],
+            [w, h],
+            [0, h]
+        ]).reshape(-1, 1, 2)
+        
+        corners_projected = cv2.transform(corners_template, M)
+        corners_projected = corners_projected.reshape(-1, 2).astype(np.int32)
+        
+        # 繪製投影框
+        cv2.polylines(scene_color, [corners_projected], True, (0, 255, 0), 2, cv2.LINE_AA)
+    
+    # 調整圖像大小以保持一致
+    target_h = max(template_color.shape[0], warped_color.shape[0])
+    target_w = max(template_color.shape[1], warped_color.shape[1])
+    
+    template_resized = cv2.resize(template_color, (target_w, target_h))
+    warped_resized = cv2.resize(warped_color, (target_w, target_h))
+    
+    # 調整場景圖像大小，保持寬高比
+    scene_h, scene_w = scene_color.shape[:2]
+    scene_aspect = scene_w / scene_h
+    scene_target_w = int(target_w * 0.8)  # 場景圖像稍小一些以留出空間
+    scene_target_h = int(scene_target_w / scene_aspect)
+    scene_resized = cv2.resize(scene_color, (scene_target_w, scene_target_h))
+    
+    # 創建並排比較圖
+    # 上排：模板和反扭轉後的場景
+    top_row = np.hstack([template_resized, warped_resized])
+    
+    # 下排：場景圖像（居中）
+    padding_w = (top_row.shape[1] - scene_resized.shape[1]) // 2
+    padding = np.zeros((scene_resized.shape[0], padding_w, 3), dtype=np.uint8)
+    bottom_row = np.hstack([padding, scene_resized, padding])
+    
+    # 確保上下排寬度一致
+    if bottom_row.shape[1] < top_row.shape[1]:
+        extra_padding = np.zeros((bottom_row.shape[0], top_row.shape[1] - bottom_row.shape[1], 3), dtype=np.uint8)
+        bottom_row = np.hstack([bottom_row, extra_padding])
+    
+    # 合併上下排
+    comparison = np.vstack([top_row, bottom_row])
+    
+    # 添加標籤
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.7
+    thickness = 2
+    color = (255, 255, 255)
+    
+    cv2.putText(comparison, "Template", (10, 30), font, font_scale, color, thickness)
+    cv2.putText(comparison, "Warped Scene", (target_w + 10, 30), font, font_scale, color, thickness)
+    cv2.putText(comparison, "Scene with Detection", (10, target_h + 30), font, font_scale, color, thickness)
+    
+    # 添加參數信息
+    params = result['params']
+    info_text = f"tx={params['tx']:.1f}, ty={params['ty']:.1f}, θ={params['theta_deg']:.1f}°, s={params['scale']:.3f}"
+    cv2.putText(comparison, info_text, (10, comparison.shape[0] - 10), font, font_scale, color, thickness)
+    
+    return comparison
+
+
+def _finalize_overlay_alpha(overlay: np.ndarray) -> None:
+    if overlay.shape[2] != 4:
+        raise ValueError("overlay must be RGBA")
+    alpha_mask = np.any(overlay[..., :3] != 0, axis=2)
+    overlay[..., 3] = 0
+    overlay[..., 3][alpha_mask] = 255
+
+
+def create_matches_overlay(template: np.ndarray,
+                           image: np.ndarray,
+                           result: Dict,
+                           show_all: bool = False) -> np.ndarray:
+    """建立匹配線段的透明疊圖（模板 + 場景拼接寬度）。"""
+    kp1 = result['keypoints_template']
+    kp2 = result['keypoints_image']
+    matches = result['matches']
+    inliers_mask = result['inliers_mask']
+
+    if template.ndim == 2:
+        template_color = cv2.cvtColor(template, cv2.COLOR_GRAY2BGR)
+    else:
+        template_color = template
+
+    if image.ndim == 2:
+        image_color = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    else:
+        image_color = image
+
+    h1, w1 = template_color.shape[:2]
+    h2, w2 = image_color.shape[:2]
+    vis_h = max(h1, h2)
+    vis_w = w1 + w2
+
+    overlay = np.zeros((vis_h, vis_w, 4), dtype=np.uint8)
+    canvas = np.zeros((vis_h, vis_w, 3), dtype=np.uint8)
+
+    kp2_shifted = []
+    for kp in kp2:
+        kp2_shifted.append(cv2.KeyPoint(kp.pt[0] + w1, kp.pt[1], kp.size, kp.angle, kp.response, kp.octave, kp.class_id))
+
+    for i, match in enumerate(matches):
+        if not show_all and not inliers_mask[i]:
+            continue
+        pt1 = tuple(map(int, kp1[match.queryIdx].pt))
+        pt2 = tuple(map(int, kp2_shifted[match.trainIdx].pt))
+
+        if inliers_mask[i]:
+            color = (0, 255, 0)
+            thickness = 2
+        else:
+            color = (0, 0, 255)
+            thickness = 1
+
+        cv2.line(canvas, pt1, pt2, color, thickness, cv2.LINE_AA)
+        cv2.circle(canvas, pt1, 3, color, -1, cv2.LINE_AA)
+        cv2.circle(canvas, pt2, 3, color, -1, cv2.LINE_AA)
+
+    overlay[..., :3] = canvas
+    _finalize_overlay_alpha(overlay)
+    return overlay
+
+
+def create_reprojection_overlay(template: np.ndarray,
+                                image: np.ndarray,
+                                result: Dict) -> np.ndarray:
+    """建立重投影框的透明疊圖（與場景圖像同尺寸）。"""
+    if image.ndim == 2:
+        h, w = image.shape
+    else:
+        h, w = image.shape[:2]
+
+    overlay = np.zeros((h, w, 4), dtype=np.uint8)
+    canvas = np.zeros((h, w, 3), dtype=np.uint8)
+
+    M = result['affine_matrix']
+    if M is not None:
+        tpl_h, tpl_w = template.shape[:2]
+        corners_template = np.float32([
+            [0, 0],
+            [tpl_w, 0],
+            [tpl_w, tpl_h],
+            [0, tpl_h]
+        ]).reshape(-1, 1, 2)
+
+        corners_projected = cv2.transform(corners_template, M)
+        corners_projected = corners_projected.reshape(-1, 2).astype(np.int32)
+
+        cv2.polylines(canvas, [corners_projected], True, (255, 0, 0), 2, cv2.LINE_AA)
+
+        for idx, corner in enumerate(corners_projected):
+            cv2.circle(canvas, tuple(corner), 4, (255, 0, 0), -1, cv2.LINE_AA)
+            cv2.putText(canvas, f"P{idx+1}", (corner[0] + 5, corner[1] - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+
+    overlay[..., :3] = canvas
+    _finalize_overlay_alpha(overlay)
+    return overlay
 

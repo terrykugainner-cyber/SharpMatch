@@ -6,6 +6,7 @@
 
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import cv2
@@ -18,7 +19,11 @@ from sharp.affine_match import (
     visualize_matches,
     visualize_reprojection,
     multi_affine_match_hybrid,
-    visualize_multi_matches
+    visualize_multi_matches,
+    warp_scene_to_template,
+    visualize_warp_comparison,
+    create_matches_overlay,
+    create_reprojection_overlay
 )
 
 
@@ -58,9 +63,9 @@ def test_affine_matching(template, scene, min_inliers=20):
         if result is None:
             test_passed = False
             error_messages.append("匹配返回 None")
-            print("  ✗ 失敗: 匹配返回 None")
+            print("  [FAIL] 失敗: 匹配返回 None")
         else:
-            print("  ✓ 通過: 流程完整執行，未崩潰")
+            print("  [OK] 通過: 流程完整執行，未崩潰")
         
         # 測試 2: 檢查內點數量
         print(f"\n[測試 2] 內點數量檢查 (要求 >= {min_inliers})...")
@@ -68,9 +73,9 @@ def test_affine_matching(template, scene, min_inliers=20):
         if num_inliers < min_inliers:
             test_passed = False
             error_messages.append(f"內點數量不足: {num_inliers} < {min_inliers}")
-            print(f"  ✗ 失敗: 內點數量 {num_inliers} < {min_inliers}")
+            print(f"  [FAIL] 失敗: 內點數量 {num_inliers} < {min_inliers}")
         else:
-            print(f"  ✓ 通過: 內點數量 {num_inliers} >= {min_inliers}")
+            print(f"  [OK] 通過: 內點數量 {num_inliers} >= {min_inliers}")
         
         # 測試 3: 檢查仿射矩陣
         print("\n[測試 3] 仿射矩陣有效性檢查...")
@@ -78,9 +83,9 @@ def test_affine_matching(template, scene, min_inliers=20):
         if M is None or M.shape != (2, 3):
             test_passed = False
             error_messages.append("仿射矩陣無效")
-            print("  ✗ 失敗: 仿射矩陣無效")
+            print("  [FAIL] 失敗: 仿射矩陣無效")
         else:
-            print("  ✓ 通過: 仿射矩陣有效 (2x3)")
+            print("  [OK] 通過: 仿射矩陣有效 (2x3)")
         
         # 測試 4: 檢查參數解析
         print("\n[測試 4] 參數解析檢查...")
@@ -90,9 +95,9 @@ def test_affine_matching(template, scene, min_inliers=20):
         if missing_keys:
             test_passed = False
             error_messages.append(f"缺少參數: {missing_keys}")
-            print(f"  ✗ 失敗: 缺少參數 {missing_keys}")
+            print(f"  [FAIL] 失敗: 缺少參數 {missing_keys}")
         else:
-            print("  ✓ 通過: 所有參數已正確解析")
+            print("  [OK] 通過: 所有參數已正確解析")
             print(f"    平移: ({params['tx']:.2f}, {params['ty']:.2f})")
             print(f"    角度: {params['theta_deg']:.2f}°")
             print(f"    縮放: {params['scale']:.4f}")
@@ -103,9 +108,9 @@ def test_affine_matching(template, scene, min_inliers=20):
         if scale <= 0 or scale > 50:  # 從 10 擴大到 50，適應更大的縮放範圍
             test_passed = False
             error_messages.append(f"縮放因子不合理: {scale}")
-            print(f"  ✗ 失敗: 縮放因子 {scale:.4f} 不合理 (應在 0-50 範圍)")
+            print(f"  [FAIL] 失敗: 縮放因子 {scale:.4f} 不合理 (應在 0-50 範圍)")
         else:
-            print(f"  ✓ 通過: 縮放因子 {scale:.4f} 在合理範圍")
+            print(f"  [OK] 通過: 縮放因子 {scale:.4f} 在合理範圍")
         
         # 測試 6: 檢查內點比率
         print("\n[測試 6] 內點比率檢查...")
@@ -113,16 +118,16 @@ def test_affine_matching(template, scene, min_inliers=20):
         if inlier_ratio < 0.1:  # 至少 10% 內點
             test_passed = False
             error_messages.append(f"內點比率過低: {inlier_ratio:.2%}")
-            print(f"  ✗ 警告: 內點比率 {inlier_ratio:.2%} 較低 (建議 >= 10%)")
+            print(f"  [FAIL] 警告: 內點比率 {inlier_ratio:.2%} 較低 (建議 >= 10%)")
         else:
-            print(f"  ✓ 通過: 內點比率 {inlier_ratio:.2%} 合理")
+            print(f"  [OK] 通過: 內點比率 {inlier_ratio:.2%} 合理")
         
         # 測試總結
         print("\n" + "=" * 60)
         if test_passed:
-            print("✓ 所有測試通過！")
+            print("[OK] 所有測試通過！")
         else:
-            print("✗ 部分測試失敗:")
+            print("[FAIL] 部分測試失敗:")
             for msg in error_messages:
                 print(f"  - {msg}")
         print("=" * 60)
@@ -130,7 +135,7 @@ def test_affine_matching(template, scene, min_inliers=20):
         return test_passed, result
         
     except Exception as e:
-        print(f"\n✗ 測試失敗: 發生異常: {e}")
+        print(f"\n[FAIL] 測試失敗: 發生異常: {e}")
         import traceback
         traceback.print_exc()
         return False, None
@@ -203,10 +208,20 @@ def save_csv_summary(results, template_path, image_path, output_dir, elapsed_tim
             }
             writer.writerow(csv_row)
     
-    print(f"  ✓ CSV 摘要已保存: {csv_path}")
+    print(f"  [OK] CSV 摘要已保存: {csv_path}")
 
 
-def main():
+def parse_args():
+    parser = argparse.ArgumentParser(description="仿射匹配演示與測試")
+    parser.add_argument("--save-alpha-overlays", action="store_true",
+                        help="輸出透明疊圖（RGBA）供前端/簡報疊加使用")
+    return parser.parse_args()
+
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+    
     # 載入圖像
     template_path = 'data/demo/template.png'
     scene_path = 'data/demo/scene.png'
@@ -260,7 +275,7 @@ def main():
         start_time = time.time()
         
         # 匹配參數
-        detector_type = 'auto'
+        detector_type = 'auto' #'auto'
         matcher_type = 'flann'  # 匹配器類型：'bf' 或 'flann'
         ratio_threshold = 0.75
         max_keypoints = 3000
@@ -273,10 +288,20 @@ def main():
         chamfer_min_dist = 50  # Chamfer 峰值間最小距離
         
         # Affine 參數
-        min_inlier_ratio = 0.15  # 最小內點比率
-        min_matches = 3  # 最小匹配點數
+        min_inlier_ratio = 0.15
+        min_matches = 3
         affine_roi_padding = 50  # ROI 填充
-        
+        stage2_min_inlier_ratio = 0.35
+        stage2_min_matches = 6
+        stage2_min_inliers = 5
+        stage2_scale_range = (0.7, 1.3)
+        stage2_min_chamfer = 0.75
+        post_min_inlier_ratio = 0.45
+        post_min_matches = 8
+        post_min_inliers = 6
+        post_scale_range = (0.75, 1.25)
+        post_min_chamfer = 0.85
+ 
         # NMS 參數
         nms_min_distance = 50.0
         nms_min_angle_diff = 5.0
@@ -286,6 +311,16 @@ def main():
         print(f"  最小內點比率: {min_inlier_ratio}")
         print(f"  檢測器類型: {detector_type}")
         print(f"  匹配器類型: {matcher_type}")
+        print("  Stage2 品質門檻:")
+        print(f"    - 內點比率 >= {stage2_min_inlier_ratio}")
+        print(f"    - 匹配數 >= {stage2_min_matches}, 內點數 >= {stage2_min_inliers}")
+        print(f"    - 縮放範圍 {stage2_scale_range[0]} ~ {stage2_scale_range[1]}")
+        print(f"    - Chamfer 分數 >= {stage2_min_chamfer}")
+        print("  Stage3 最終篩選:")
+        print(f"    - 內點比率 >= {post_min_inlier_ratio}")
+        print(f"    - 匹配數 >= {post_min_matches}, 內點數 >= {post_min_inliers}")
+        print(f"    - 縮放範圍 {post_scale_range[0]} ~ {post_scale_range[1]}")
+        print(f"    - Chamfer 分數 >= {post_min_chamfer}")
         
         try:
             results = multi_affine_match_hybrid(
@@ -293,8 +328,11 @@ def main():
                 chamfer_k=chamfer_k,
                 chamfer_min_dist=chamfer_min_dist,
                 chamfer_roi=None,  # 全圖搜索
-                min_inlier_ratio=min_inlier_ratio,
-                min_matches=min_matches,
+                min_inlier_ratio=stage2_min_inlier_ratio,
+                min_matches=stage2_min_matches,
+                min_inliers=stage2_min_inliers,
+                scale_range=stage2_scale_range,
+                min_chamfer_score=stage2_min_chamfer,
                 affine_roi_padding=affine_roi_padding,
                 detector_type=detector_type,
                 matcher_type=matcher_type,
@@ -306,6 +344,11 @@ def main():
                 nms_min_distance=nms_min_distance,
                 nms_min_angle_diff=nms_min_angle_diff,
                 nms_min_scale_diff=nms_min_scale_diff,
+                post_min_inlier_ratio=post_min_inlier_ratio,
+                post_min_matches=post_min_matches,
+                post_min_inliers=post_min_inliers,
+                post_scale_range=post_scale_range,
+                post_min_chamfer_score=post_min_chamfer,
                 verbose=True
             )
         except Exception as e:
@@ -346,22 +389,61 @@ def main():
         multi_vis = visualize_multi_matches(template, scene, results, show_all_matches=False)
         multi_path = output_dir / 'out_affine_multi.png'
         cv2.imwrite(str(multi_path), multi_vis)
-        print(f"  ✓ 多物件可視化已保存: {multi_path}")
+        print(f"  [OK] 多物件可視化已保存: {multi_path}")
         
         # 2. 保存第一個實例的詳細匹配可視化（所有匹配點）
         if len(results) > 0:
             matches_vis = visualize_matches(template, scene, results[0], show_all=True)
             matches_path = output_dir / 'out_affine_matches.png'
             cv2.imwrite(str(matches_path), matches_vis)
-            print(f"  ✓ 第一個實例匹配可視化已保存: {matches_path}")
+            print(f"  [OK] 第一個實例匹配可視化已保存: {matches_path}")
             
             # 3. 保存第一個實例的內點匹配可視化（只顯示內點）
             matches_inliers_vis = visualize_matches(template, scene, results[0], show_all=False)
             matches_inliers_path = output_dir / 'matches_inliers_only.png'
             cv2.imwrite(str(matches_inliers_path), matches_inliers_vis)
-            print(f"  ✓ 第一個實例內點匹配可視化已保存: {matches_inliers_path}")
+            print(f"  [OK] 第一個實例內點匹配可視化已保存: {matches_inliers_path}")
+            
+            if args.save_alpha_overlays:
+                overlays_dir = Path('overlays')
+                overlays_dir.mkdir(parents=True, exist_ok=True)
+                matches_overlay = create_matches_overlay(template, scene, results[0], show_all=False)
+                matches_overlay_path = overlays_dir / 'matches_overlay.png'
+                cv2.imwrite(str(matches_overlay_path), matches_overlay)
+                repro_overlay = create_reprojection_overlay(template, scene, results[0])
+                repro_overlay_path = overlays_dir / 'reproject_overlay.png'
+                cv2.imwrite(str(repro_overlay_path), repro_overlay)
+                print(f"  [OK] 透明疊圖已保存: {matches_overlay_path}, {repro_overlay_path}")
+
+            # 4. 反扭轉第一個實例的場景區塊到模板大小
+            print("\n[階段4] 生成反扭轉後的場景區塊...")
+            try:
+                # 反扭轉場景區塊到模板大小
+                warped_scene, mask = warp_scene_to_template(
+                    template, scene, results[0]['affine_matrix'], 
+                    output_mask=True
+                )
+                
+                # 保存反扭轉後的圖像
+                warped_path = Path('outputs/warped_to_template.png')
+                cv2.imwrite(str(warped_path), warped_scene)
+                print(f"  [OK] 第一個實例反扭轉後的場景區塊已保存: {warped_path}")
+                
+                # 保存遮罩
+                mask_path = Path('outputs/warped_mask.png')
+                cv2.imwrite(str(mask_path), mask)
+                print(f"  [OK] 第一個實例反扭轉遮罩已保存: {mask_path}")
+                
+                # 生成並保存比較可視化
+                warp_vis = visualize_warp_comparison(template, scene, warped_scene, results[0])
+                warp_vis_path = output_dir / 'out_affine_warp_comparison.png'
+                cv2.imwrite(str(warp_vis_path), warp_vis)
+                print(f"  [OK] 第一個實例反扭轉比較可視化已保存: {warp_vis_path}")
+                
+            except Exception as e:
+                print(f"  [FAIL] 第一個實例反扭轉失敗: {e}")
         
-        # 3. 保存 JSON 結果
+        # 5. 保存 JSON 結果
         import json
         json_data = {
             'num_instances': len(results),
@@ -392,7 +474,7 @@ def main():
         json_path = output_dir / 'out_affine_multi.json'
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
-        print(f"  ✓ JSON 結果已保存: {json_path}")
+        print(f"  [OK] JSON 結果已保存: {json_path}")
         
         # 4. 保存 CSV 摘要
         elapsed_time_ms = match_time * 1000  # 轉換為毫秒
@@ -402,19 +484,28 @@ def main():
         print("\n" + "=" * 60)
         print("多物件匹配總結")
         print("=" * 60)
-        print(f"✓ 匹配耗時: {match_time:.3f} 秒")
-        print(f"✓ 找到物件數量: {len(results)}")
+        print(f"  [OK] 匹配耗時: {match_time:.3f} 秒")
+        print(f"  [OK] 找到物件數量: {len(results)}")
         
         if len(results) > 0:
             avg_inlier_ratio = sum(r['inlier_ratio'] for r in results) / len(results)
-            print(f"✓ 平均內點比率: {avg_inlier_ratio:.2%}")
+            print(f"  [OK] 平均內點比率: {avg_inlier_ratio:.2%}")
             
             print(f"\n各實例詳情:")
             for idx, result in enumerate(results):
                 params = result['params']
-                print(f"  #{idx+1}: 位置=({params['tx']:.1f}, {params['ty']:.1f}), "
-                      f"角度={params['theta_deg']:.1f}°, 縮放={params['scale']:.3f}, "
-                      f"內點比率={result['inlier_ratio']:.1%}")
+                # 計算該實例的定位中心（模板中心投影到場景座標）
+                tpl_center = np.array([[[tpl_w / 2.0, tpl_h / 2.0]]], dtype=np.float32)
+                center_projected = cv2.transform(tpl_center, result['affine_matrix'])
+                cx, cy = center_projected[0, 0]
+
+                print(f"  #{idx+1}: 位置=({cx:.1f}, {cy:.1f}), "
+                    f"角度={params['theta_deg']:.1f}°, 縮放={params['scale']:.3f}, "
+                    f"內點比率={result['inlier_ratio']:.1%}")
+
+                #print(f"  #{idx+1}: 位置=({params['tx']:.1f}, {params['ty']:.1f}), "
+                #      f"角度={params['theta_deg']:.1f}°, 縮放={params['scale']:.3f}, "
+                #      f"內點比率={result['inlier_ratio']:.1%}")
         else:
             print("\n警告: 未找到任何匹配物件")
             print("建議:")
@@ -465,7 +556,7 @@ def main():
             print("  4. 放寬 RANSAC 參數（例如 reproj_thresh=5.0）")
             return
         
-        match_time = time.time() - start_time
+        match_time = time.time() - match_start_time
         print(f"  耗時: {match_time:.3f} 秒")
         
         # 顯示結果
@@ -492,19 +583,58 @@ def main():
         matches_vis = visualize_matches(template, scene, result, show_all=True)
         matches_path = output_dir / 'out_affine_matches.png'
         cv2.imwrite(str(matches_path), matches_vis)
-        print(f"  ✓ 匹配可視化已保存: {matches_path}")
+        print(f"  [OK] 匹配可視化已保存: {matches_path}")
         
         # 2. 只顯示內點的匹配可視化
         matches_inliers_vis = visualize_matches(template, scene, result, show_all=False)
         matches_inliers_path = output_dir / 'matches_inliers_only.png'
         cv2.imwrite(str(matches_inliers_path), matches_inliers_vis)
-        print(f"  ✓ 內點匹配可視化已保存: {matches_inliers_path}")
+        print(f"  [OK] 內點匹配可視化已保存: {matches_inliers_path}")
         
-        # 3. 重投影可視化（模板框投影）
+        if args.save_alpha_overlays:
+            overlays_dir = Path('overlays')
+            overlays_dir.mkdir(parents=True, exist_ok=True)
+            matches_overlay = create_matches_overlay(template, scene, result, show_all=False)
+            matches_overlay_path = overlays_dir / 'matches_overlay.png'
+            cv2.imwrite(str(matches_overlay_path), matches_overlay)
+            repro_overlay = create_reprojection_overlay(template, scene, result)
+            repro_overlay_path = overlays_dir / 'reproject_overlay.png'
+            cv2.imwrite(str(repro_overlay_path), repro_overlay)
+            print(f"  [OK] 透明疊圖已保存: {matches_overlay_path}, {repro_overlay_path}")
+
+        # 4. 反扭轉場景區塊到模板大小
+        print("\n[階段4] 生成反扭轉後的場景區塊...")
+        try:
+            # 反扭轉場景區塊到模板大小
+            warped_scene, mask = warp_scene_to_template(
+                template, scene, result['affine_matrix'], 
+                output_mask=True
+            )
+            
+            # 保存反扭轉後的圖像
+            warped_path = Path('outputs/warped_to_template.png')
+            cv2.imwrite(str(warped_path), warped_scene)
+            print(f"  [OK] 反扭轉後的場景區塊已保存: {warped_path}")
+            
+            # 保存遮罩
+            mask_path = Path('outputs/warped_mask.png')
+            cv2.imwrite(str(mask_path), mask)
+            print(f"  [OK] 反扭轉遮罩已保存: {mask_path}")
+            
+            # 生成並保存比較可視化
+            warp_vis = visualize_warp_comparison(template, scene, warped_scene, result)
+            warp_vis_path = output_dir / 'out_affine_warp_comparison.png'
+            cv2.imwrite(str(warp_vis_path), warp_vis)
+            print(f"  [OK] 反扭轉比較可視化已保存: {warp_vis_path}")
+            
+        except Exception as e:
+            print(f"  [FAIL] 反扭轉失敗: {e}")
+        
+        # 5. 重投影可視化（模板框投影）
         reproj_vis = visualize_reprojection(template, scene, result)
         reproj_path = output_dir / 'out_affine_reproject.png'
         cv2.imwrite(str(reproj_path), reproj_vis)
-        print(f"  ✓ 重投影可視化已保存: {reproj_path}")
+        print(f"  [OK] 重投影可視化已保存: {reproj_path}")
         
         # 3. 保存 JSON 結果
         import json
@@ -527,12 +657,12 @@ def main():
         json_path = output_dir / 'out_affine.json'
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(json_data, f, indent=2, ensure_ascii=False)
-        print(f"  ✓ JSON 結果已保存: {json_path}")
+        print(f"  [OK] JSON 結果已保存: {json_path}")
         
         # 4. 保存內點遮罩
         npy_path = output_dir / 'out_inliers_mask.npy'
         np.save(str(npy_path), result['inliers_mask'])
-        print(f"  ✓ 內點遮罩已保存: {npy_path}")
+        print(f"  [OK] 內點遮罩已保存: {npy_path}")
         
         # 5. 保存 CSV 摘要
         save_csv_summary(result, template_path, scene_path, output_dir, elapsed_time_ms, is_multi=False)
@@ -541,9 +671,9 @@ def main():
         print("\n" + "=" * 60)
         print("匹配總結")
         print("=" * 60)
-        print(f"✓ 匹配耗時: {match_time:.3f} 秒")
-        print(f"✓ 內點比率: {result['inlier_ratio']:.2%}")
-        print(f"✓ 仿射參數:")
+        print(f"  [OK] 匹配耗時: {match_time:.3f} 秒")
+        print(f"  [OK] 內點比率: {result['inlier_ratio']:.2%}")
+        print(f"  [OK] 仿射參數:")
         print(f"   平移: ({params['tx']:.2f}, {params['ty']:.2f})")
         print(f"   旋轉: {params['theta_deg']:.2f}°")
         print(f"   縮放: {params['scale']:.4f}")
@@ -558,7 +688,7 @@ def main():
         else:
             quality = "較差"
         
-        print(f"✓ 匹配質量: {quality} (內點比率: {result['inlier_ratio']:.2%})")
+        print(f"  [OK] 匹配質量: {quality} (內點比率: {result['inlier_ratio']:.2%})")
         
         if result['inlier_ratio'] < 0.3:
             print("\n建議:")

@@ -13,4 +13,6 @@ from .affine_match import (detect_features, match_features,
                            affine_match, visualize_matches,
                            visualize_reprojection,
                            nms_affine_matches, multi_affine_match_hybrid,
-                           visualize_multi_matches)
+                           visualize_multi_matches, warp_scene_to_template,
+                           visualize_warp_comparison,
+                           create_matches_overlay, create_reprojection_overlay)
