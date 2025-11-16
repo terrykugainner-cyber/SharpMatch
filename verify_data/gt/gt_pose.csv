@@ -1,0 +1,11 @@
+image_id,template_id,cx,cy,theta_deg,scale_gt,valid,comment
+0001,tempA,220,160,-10,1,1,normal
+0002,tempA,320,260,5,1.1,1,normal
+0003,tempA,260,180,0,0.9,1,normal
+0004,tempA,150,300,-30,0.8,1,reflection
+0005,tempA,320,200,-12,1,1,dirt
+0006,tempA,200,250,20,1.2,1,occlusion
+0007,tempA,360,180,-5,0.95,1,normal
+0008,tempA,120,200,10,1.05,1,normal
+0009,tempA,260,280,-18,0.85,1,normal
+0010,tempA,180,150,8,1.1,1,normal

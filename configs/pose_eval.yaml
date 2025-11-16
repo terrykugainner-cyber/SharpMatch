@@ -1,0 +1,5 @@
+angle_deg: 15.0             # |theta - theta_gt| < angle_deg
+distance_ratio: 0.25        # dist < ratio * diag(template) * s_gt 
+max_dets_per_image: 20      # 每張圖最多20個檢測結果（NMS）
+scale_ratio: 0.25           # |s - s_gt| < scale_ratio * s_gt
+score_threshold: 0.3        # 分數低於這個就當作沒抓到（直接丟棄）
